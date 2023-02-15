@@ -17,7 +17,7 @@ from requests.auth import HTTPBasicAuth
 
 # global settings
 debug_setting = 1       # debug setting: 0 = silent, 1 = info, 2 = details
-base_url = 'https://api.octopus.energy'
+base_url = 'https://api.octopus.energy/v1/'
 credentials = None      # account credetials for API access
 e_meter = None          # electricity import meter details
 x_meter = None          # electricity export meter details
@@ -94,7 +94,7 @@ class Product :
         if clear_cache :
             products_json = None
         if products_json is None :
-            response = requests.get(base_url + '/v1/products', auth=credentials)
+            response = requests.get(base_url + 'products', auth=credentials)
             if response.status_code != 200 :
                 print("** response code getting list of products = {response.status_code}")
                 return
@@ -111,7 +111,7 @@ class Product :
             return
         # load product details
         self.code = p[0].get('code')
-        response = requests.get(base_url + '/v1/products/' + self.code + '/', auth=credentials)
+        response = requests.get(base_url + 'products/' + self.code + '/', auth=credentials)
         if response.status_code != 200 :
             print(f"** response code getting product details for {self.code} = {response.status_code}")
             return
