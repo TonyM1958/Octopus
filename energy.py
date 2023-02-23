@@ -17,7 +17,7 @@ import requests
 from requests.auth import HTTPBasicAuth
 
 # global settings
-debug_setting = 1       # debug setting: 0 = silent, 1 = info, 2 = details
+debug_setting = 0       # debug setting: 0 = silent, 1 = info, 2 = details
 base_url = 'https://api.octopus.energy/v1/'
 credentials = None      # account credetials for API access
 gsp = None              # region code
@@ -58,7 +58,7 @@ class Meter :
             response = requests.get(base_url + 'electricity-meter-points/' + self.mpn + '/', auth=credentials)
             if response.status_code == 200:
                 gsp = response.json().get("gsp")
-                if debug_setting > 0 :
+                if debug_setting > 1 :
                     print(f"{self.mpn} / {self.ser} validated")
         self.gsp = gsp
         return
@@ -68,13 +68,17 @@ def account_setting(api_key = None, url = None, r = None, imp = None, exp = None
     Load account settings to use
     """ 
     global debug_setting, base_url, gsp, imp_meter, exp_meter, gas_meter
+    if debug is not None :
+        debug_setting = debug
+        if debug_setting > 1 :
+            print(f"Debug set to {debug}")
     if api_key is not None :
         credentials = HTTPBasicAuth(api_key,'')
         if debug_setting > 0 :
-            print(f"Credentials set")
+            print(f"Octopus credentials provided")
     if url is not None :
         base_url = url
-        if debug_setting > 0 :
+        if debug_setting > 1 :
             print(f"Base url: {url}")
     if r is not None :
         gsp = r
@@ -82,19 +86,16 @@ def account_setting(api_key = None, url = None, r = None, imp = None, exp = None
             print(f"Region is {regions[gsp]} ({gsp})")
     if imp is not None :
         imp_meter = imp
-        if debug_setting > 0 :
+        if debug_setting > 1 :
             print(f"Electricity: MPAN={imp_meter.mpn}, serial={imp_meter.ser}, gsp={imp_meter.gsp}")
     if exp is not None :
         exp_meter = exp
-        if debug_setting > 0 :
+        if debug_setting > 1 :
             print(f"Export: MPAN={exp_meter.mpn}, serial={exp_meter.ser}, gsp={imp_meter.gsp}")
     if gas is not None :
         gas_meter = gas
-        if debug_setting > 0 :
+        if debug_setting > 1 :
             print(f"Gas: MPRN={gas_meter.mpn}, serial={gas_meter.ser}, gsp={gas_meter.gsp}")
-    if debug is not None :
-        debug_setting = debug
-        print(f"Debug setting: {debug}")
     return
 
 product_codes = None        # cached product codes
@@ -176,38 +177,41 @@ class Product :
 
     def __str__(self) :
         # format product details for display
-        global regions
+        global regions, imp_meter, exp_meter, gas_meter
         if hasattr(self, 'code') :
-            s = f"code: {self.code}"
-            s += f"   display_name:   {self.display_name}\n"
-            s += f"   full_name:      {self.full_name}\n"
-            s += f"   description:    {self.description}\n"
-            s += f"   is_variable:    {self.is_variable}\n"
-            s += f"   is_green:       {self.is_green}\n"
-            s += f"   is_outgoing:    {self.is_outgoing}\n"
-            s += f"   term:           {self.term}\n"
-            s += f"   available_from: {self.available_from}\n"
-            s += f"   available_to:   {self.available_to}\n"
-            if hasattr(self, 'region') :
-                s += f"   region:         {regions[self.region]}\n"
-            if hasattr(self, 'imp_code') :
-                s += f"   imp_code:       {self.imp_code}\n"
-            if hasattr(self, 'imp_day') :
-                s += f"   imp_day:        {self.imp_day} p/day\n"
-            if hasattr(self, 'imp_kwh') :
-                s += f"   imp_kwh:        {self.imp_kwh} p/kwh\n"
-            if hasattr(self, 'exp_code') :
-                s += f"   exp_code:       {self.exp_code}\n"
-            if hasattr(self, 'exp_day') :
-                s += f"   exp_day:        {self.exp_day} p/day\n"
-            if hasattr(self, 'exp_kwh') :
-                s += f"   exp_kwh:        {self.exp_kwh} p/kwh\n"
-            if hasattr(self, 'gas_code') :
-                s += f"   gas_code:       {self.gas_code}\n"
-            if hasattr(self, 'gas_day') :
-                s += f"   gas_day:        {self.gas_day} p/day\n"
-            if hasattr(self, 'gas_kwh') :
-                s += f"   gas_kwh:        {self.gas_kwh} p/kwh\n"
+            s = f"Product details for code: {self.code}\n"
+            s += f"   Display name:      {self.display_name}\n"
+            s += f"   Full name:         {self.full_name}\n"
+            s += f"   Description:       {self.description}\n"
+            s += f"   Is variable:       {self.is_variable}\n"
+            s += f"   Is green:          {self.is_green}\n"
+            s += f"   Is outgoing:       {self.is_outgoing}\n"
+            s += f"   Term:              {self.term} months\n"
+            s += f"   Available from:    {self.available_from}\n"
+            s += f"   Available to:      {self.available_to}\n"
+            if imp_meter is not None :
+                if hasattr(self, 'gsp') :
+                    s += f"   Your region (GSP): {regions[self.gsp]}\n"
+                if hasattr(self, 'imp_code') :
+                    s += f"   Import price code: {self.imp_code}\n"
+                if hasattr(self, 'imp_day') :
+                    s += f"   Import day rate:   {self.imp_day} p/day\n"
+                if hasattr(self, 'imp_kwh') :
+                    s += f"   Import unit cost:  {self.imp_kwh} p/kwh\n"
+            if exp_meter is not None:
+                if hasattr(self, 'exp_code') :
+                    s += f"   Export price code: {self.exp_code}\n"
+                if hasattr(self, 'exp_day') :
+                    s += f"   Export day cost:   {self.exp_day} p/day\n"
+                if hasattr(self, 'exp_kwh') :
+                    s += f"   Export unit cost:  {self.exp_kwh} p/kwh\n"
+            if gas_meter is not None:
+                if hasattr(self, 'gas_code') :
+                    s += f"   Gas price code:    {self.gas_code}\n"
+                if hasattr(self, 'gas_day') :
+                    s += f"   Gas day cost:      {self.gas_day} p/day\n"
+                if hasattr(self, 'gas_kwh') :
+                    s += f"   Gas unit cost:     {self.gas_kwh} p/kwh\n"
             return s 
         return f"** not a valid product\n"
 
@@ -238,7 +242,7 @@ class Product :
         for r in response.json().get('results') :
             s = r.get('valid_from')
             day = s[:10]
-            hour = s[11:16].replace(':','')
+            hour = c_int(s[11:16].replace(':',''))
             value = c_float(r.get('value_inc_vat'))
             if hour not in self.prices.keys() :
                 self.prices[hour] = {}
@@ -247,6 +251,16 @@ class Product :
         return
 
     def plot_30_minute_prices(self, period_to = None, figwidth=24) :
+        periods = {             # 30 minute slots in order, grouped into time periods
+            'aa' : [0000,   30,  100],
+            'nt' : [ 130,  200,  230,  300,  330,  400,  430],
+            'cc' : [ 500,  530,  600],
+            'am' : [ 630,  700,  730,  800,  830,  900,  930, 1000],
+            'dd' : [1030, 1100, 1130, 1200],
+            'pm' : [1230, 1300, 1330, 1400, 1430, 1500],
+            'ff' : [1530],
+            'pk' : [1600, 1630, 1700, 1730, 1800, 1830, 1900, 1930],
+            'hh' : [2000, 2030, 2100, 2130, 2200, 2230, 2300, 2330]}
         if not hasattr(self, 'prices') :
             self.load_30_minute_prices(period_to)
         if len(self.keys) < 46 :
@@ -255,22 +269,33 @@ class Product :
         y_avg = []
         y_min = []
         y_max = []
+        averages = {}
         for k in self.keys :
             l = [v for v in self.prices[k].values()]
-            y_avg.append(sum(l) / len(l))
+            averages[k] = sum(l) / len(l)
+            y_avg.append(averages[k])
             y_min.append(min(l))
             y_max.append(max(l))
+        y_per = []
+        self.period_avg = {}
+        for b in periods.keys() :
+            v = [averages[k] for k in periods[b]]
+            self.period_avg[b] = sum(v) / len(v)
+            for k in periods[b] :
+                y_per.append(self.period_avg[b])
+        x_values = [f"{k:04d}" for k in self.keys]
         self.figsize = (figwidth, figwidth/3)     # size of charts
         plt.figure(figsize=self.figsize)
         alpha=0.07       # background transparency
-        plt.plot(self.keys, y_avg, color='black', linestyle='solid', label='average', linewidth=2)
-        plt.plot(self.keys, y_min, color='blue', linestyle='dashed', label='min', linewidth=1)
-        plt.plot(self.keys, y_max, color='red', linestyle='dashed', label='max', linewidth=1)
-        plt.axvspan('0000', '0500', color='green', alpha=alpha, label='night time off peak')
-        plt.axvspan('0530', '1130', color='orange', alpha=alpha, label='day time peak')
-        plt.axvspan('1200', '1500', color='grey', alpha=alpha, label='day time off peak')
-        plt.axvspan('1600', '2100', color='red', alpha=alpha, label='evening peak')
-        plt.title(f"Average, min and max daily price (p/kwh) for {self.full_name} ({self.code}) over {self.days} days from {self.period_from}", fontsize=16)
+        plt.plot(x_values, y_avg, color='black', linestyle='solid', label='30 minute average', linewidth=2)
+        plt.plot(x_values, y_min, color='blue', linestyle='dashed', label='30 minute min', linewidth=0.8)
+        plt.plot(x_values, y_max, color='red', linestyle='dashed', label='30 minute max', linewidth=0.8)
+        plt.plot(x_values, y_per, color='brown', linestyle='solid', label='period average', linewidth=3)
+        plt.axvspan(f"{periods['nt'][0]:04d}", f"{periods['nt'][-1]:04d}", color='green', alpha=alpha, label='night time off peak')
+        plt.axvspan(f"{periods['am'][0]:04d}", f"{periods['am'][-1]:04d}", color='orange', alpha=alpha, label='morning peak')
+        plt.axvspan(f"{periods['pm'][0]:04d}", f"{periods['pm'][-1]:04d}", color='grey', alpha=alpha, label='afternoon off peak')
+        plt.axvspan(f"{periods['pk'][0]:04d}", f"{periods['pk'][-1]:04d}", color='red', alpha=alpha, label='evening peak')
+        plt.title(f"Average daily pricing (p/kwh) for {self.full_name} ({self.code}) over {self.days} days from {self.period_from.date()}", fontsize=16)
         plt.grid(axis='x', which='major', linewidth=0.8)
         plt.grid(axis='y', which='major', linewidth=0.8)
         plt.grid(axis='y',which='minor', linewidth=0.4)
@@ -278,6 +303,10 @@ class Product :
         plt.legend(fontsize=14)
         plt.xticks(rotation=45)
         plt.show()
+        print(f"   Night time off peak average rate: {self.period_avg['nt']:.2f} p/kwh ({periods['nt'][0]:04d} to {periods['nt'][-1]+29:04d})")
+        print(f"   Morning peak average rate:        {self.period_avg['am']:.2f} p/kwh ({periods['am'][0]:04d} to {periods['am'][-1]+29:04d})")
+        print(f"   Afternoon off peak average rate:  {self.period_avg['pm']:.2f} p/kwh ({periods['pm'][0]:04d} to {periods['pm'][-1]+29:04d})")
+        print(f"   Evening peak average rate:        {self.period_avg['pk']:.2f} p/kwh ({periods['pk'][0]:04d} to {periods['pk'][-1]+29:04d})")
         return
 
 
@@ -299,14 +328,14 @@ def solcast_setting(api_key = None, url = None, rids = None, save = None) :
     if api_key is not None :
         solcast_credentials = HTTPBasicAuth(api_key, '')
         if debug_setting > 0 :
-            print(f"Solcast credentials set")
+            print(f"Solcast credentials provided")
     if url is not None :
         solcast_url = url
-        if debug_setting > 0 :
+        if debug_setting > 1 :
             print(f"Solcast url: {solcast_url}")
     if rids is not None :
         solcast_rids = rids
-        if debug_setting > 0 :
+        if debug_setting > 1 :
             print(f"Solcast resource ids: {solcast_rids}")
     if save is not None :
         solcast_save = save
@@ -317,12 +346,14 @@ class Forecast :
     Load Forecast daily yield
     """ 
 
-    def __init__(self, days=14, period='PT30M', threshold=10) :
+    def __init__(self, days=14, period='PT30M', threshold=10, reload=0) :
         global debug_setting, solcast_url, solcast_credentials, solcast_rids, solcast_save
         if days > 14 :
             print(f"** maximum number of days exceeded")
             days = 14
         self.threshold = threshold
+        if reload == 1 and os.path.exists(solcast_save):
+            os.remove(solcast_save)
         if solcast_save is not None and os.path.exists(solcast_save):
             f = open(solcast_save)
             self.forecasts = json.load(f)
