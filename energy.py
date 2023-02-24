@@ -40,11 +40,63 @@ def c_float(n):
         return float(0)
     return float(n)
 
-def parse_datetime(s, f='%Y-%m-%dT%H:%M:%SZ') :
-    # handle None in datetime conversion
-    if s is None :
+# tracked time periods. Time is stored as 4 digit string
+tracked = {
+        # tracked time periods
+        'night' : {'start' : '0130', 'end' : '0500', 'label' : 'Night time off peak', 'color' : 'green'},
+        'am'    : {'start' : '0630', 'end' : '1030', 'label' : 'Morning peak', 'color' : 'orange'},
+        'pm'    : {'start' : '1230', 'end' : '1500', 'label' : 'Afternoon off peak', 'color' : 'grey'},
+        'peak'  : {'start' : '1600', 'end' : '2000', 'label' : 'Evening peak', 'color' : 'red'}}
+
+def period_setting (t, start=None, end=None, label=None, color=None) :
+    global tracked
+    if t not in tracked.keys() :
+        tracked[t] = {}
+    if start is not None :
+        tracked[t]['start'] = start
+    if end is not None :
+        tracked[t]['end'] = end
+    if label is not None :
+        tracked[t]['label'] = label
+    if color is not None :
+        tracked[t]['color'] = color
+    return
+
+def time_add(t, n = 30) :
+    # add or remove minutes from time e.g. 0100 -> 0130, 1430 -> 1500
+    h = c_int(t[:2])
+    m = c_int(t[-2:]) + n
+    while m > 59 :
+        h += 1
+        m -= 60
+    while m < 0 :
+        h -= 1
+        m += 60
+    while h > 23 :
+        h -= 24
+    while h < 0 :
+        h += 24
+    return f"{h:02d}{m:02d}"
+
+def time_list(p) :
+    global tracked
+    start = tracked[p]['start']
+    end = tracked[p]['end']
+    if c_int(start) > c_int(end) :
+        print(f"** {tracked[p]['label']} period start {start} cannot be after end {end}")
         return None
-    return datetime.datetime.strptime(s,f)
+    new = [start]
+    while start != end :
+        start = time_add(start,30)
+        new.append(start)
+    return new
+
+def time_span(t) :
+    # return time span for a period
+    global tracked
+    start = tracked[t]['start']
+    end = time_add(tracked[t]['end'], -1)
+    return f"{start} to {end}"
 
 class Meter :
     """
@@ -105,7 +157,7 @@ class Product :
     Load Product details
     """ 
 
-    def __init__(self, code = '', days = 28, clear_cache = False) :
+    def __init__(self, code = '', days = 14, clear_cache = False) :
         # load product details using a partial product code
         global product_codes, base_url, credentials
         if clear_cache :
@@ -182,7 +234,7 @@ class Product :
             s = f"Product details for code: {self.code}\n"
             s += f"   Display name:      {self.display_name}\n"
             s += f"   Full name:         {self.full_name}\n"
-            s += f"   Description:       {self.description}\n"
+            s += f"   Description:       {self.description[:180]}\n"
             s += f"   Is variable:       {self.is_variable}\n"
             s += f"   Is green:          {self.is_green}\n"
             s += f"   Is outgoing:       {self.is_outgoing}\n"
@@ -212,11 +264,12 @@ class Product :
                     s += f"   Gas day cost:      {self.gas_day} p/day\n"
                 if hasattr(self, 'gas_kwh') :
                     s += f"   Gas unit cost:     {self.gas_kwh} p/kwh\n"
-            return s 
+            return s[:-1]
         return f"** not a valid product\n"
 
     def load_30_minute_prices(self, period_to = None) :
         # get the pricing for a product
+        global periods, tracked
         if self.code is None:
             return None
         tariff_code = None
@@ -242,59 +295,48 @@ class Product :
         for r in response.json().get('results') :
             s = r.get('valid_from')
             day = s[:10]
-            hour = c_int(s[11:16].replace(':',''))
+            hour = s[11:16].replace(':','')
             value = c_float(r.get('value_inc_vat'))
             if hour not in self.prices.keys() :
                 self.prices[hour] = {}
             self.prices[hour][day] = value
         self.keys = sorted(self.prices)
+        if len(self.keys) != 48 :
+            return
+        self.averages = {}
+        self.avg = []
+        self.min = []
+        self.max = []
+        for t in self.keys :
+            l = [v for v in self.prices[t].values()]
+            self.averages[t] = sum(l) / len(l)
+            self.avg.append(self.averages[t])
+            self.min.append(min(l))
+            self.max.append(max(l))
+        self.period_avg = {}
+        self.per = []
+        for p in tracked.keys() :
+            v = [self.averages[k] for k in time_list(p)[:-1]]
+            self.period_avg[p] = sum(v) / len(v)
         return
 
     def plot_30_minute_prices(self, period_to = None, figwidth=24) :
-        periods = {             # 30 minute slots in order, grouped into time periods
-            'aa' : [0000,   30,  100],
-            'nt' : [ 130,  200,  230,  300,  330,  400,  430],
-            'cc' : [ 500,  530,  600],
-            'am' : [ 630,  700,  730,  800,  830,  900,  930, 1000],
-            'dd' : [1030, 1100, 1130, 1200],
-            'pm' : [1230, 1300, 1330, 1400, 1430, 1500],
-            'ff' : [1530],
-            'pk' : [1600, 1630, 1700, 1730, 1800, 1830, 1900, 1930],
-            'hh' : [2000, 2030, 2100, 2130, 2200, 2230, 2300, 2330]}
+        global periods, tracked
         if not hasattr(self, 'prices') :
             self.load_30_minute_prices(period_to)
-        if len(self.keys) < 46 :
+        if len(self.keys) != 48 :
             print(f"** no 30 minute pricing for {self.full_name} ({self.code})")
             return
-        y_avg = []
-        y_min = []
-        y_max = []
-        averages = {}
-        for k in self.keys :
-            l = [v for v in self.prices[k].values()]
-            averages[k] = sum(l) / len(l)
-            y_avg.append(averages[k])
-            y_min.append(min(l))
-            y_max.append(max(l))
-        y_per = []
-        self.period_avg = {}
-        for b in periods.keys() :
-            v = [averages[k] for k in periods[b]]
-            self.period_avg[b] = sum(v) / len(v)
-            for k in periods[b] :
-                y_per.append(self.period_avg[b])
-        x_values = [f"{k:04d}" for k in self.keys]
         self.figsize = (figwidth, figwidth/3)     # size of charts
         plt.figure(figsize=self.figsize)
-        alpha=0.07       # background transparency
-        plt.plot(x_values, y_avg, color='black', linestyle='solid', label='30 minute average', linewidth=2)
-        plt.plot(x_values, y_min, color='blue', linestyle='dashed', label='30 minute min', linewidth=0.8)
-        plt.plot(x_values, y_max, color='red', linestyle='dashed', label='30 minute max', linewidth=0.8)
-        plt.plot(x_values, y_per, color='brown', linestyle='solid', label='period average', linewidth=3)
-        plt.axvspan(f"{periods['nt'][0]:04d}", f"{periods['nt'][-1]:04d}", color='green', alpha=alpha, label='night time off peak')
-        plt.axvspan(f"{periods['am'][0]:04d}", f"{periods['am'][-1]:04d}", color='orange', alpha=alpha, label='morning peak')
-        plt.axvspan(f"{periods['pm'][0]:04d}", f"{periods['pm'][-1]:04d}", color='grey', alpha=alpha, label='afternoon off peak')
-        plt.axvspan(f"{periods['pk'][0]:04d}", f"{periods['pk'][-1]:04d}", color='red', alpha=alpha, label='evening peak')
+        plt.plot(self.keys, self.avg, color='black', linestyle='solid', label='30 minute average', linewidth=2)
+        plt.plot(self.keys, self.min, color='blue', linestyle='dashed', label='30 minute min', linewidth=0.8)
+        plt.plot(self.keys, self.max, color='red', linestyle='dashed', label='30 minute max', linewidth=0.8)
+        for p in tracked.keys() :
+            times = time_list(p)
+            values = [self.period_avg[p] for t in times]
+            plt.plot(times, values, color=tracked[p]['color'], linestyle='dotted', label=tracked[p]['label'], linewidth=3)
+            plt.axvspan(times[0], times[-1], label=tracked[p]['label'], color=tracked[p]['color'], alpha=0.07)
         plt.title(f"Average daily pricing (p/kwh) for {self.full_name} ({self.code}) over {self.days} days from {self.period_from.date()}", fontsize=16)
         plt.grid(axis='x', which='major', linewidth=0.8)
         plt.grid(axis='y', which='major', linewidth=0.8)
@@ -303,10 +345,8 @@ class Product :
         plt.legend(fontsize=14)
         plt.xticks(rotation=45)
         plt.show()
-        print(f"   Night time off peak average rate: {self.period_avg['nt']:.2f} p/kwh ({periods['nt'][0]:04d} to {periods['nt'][-1]+29:04d})")
-        print(f"   Morning peak average rate:        {self.period_avg['am']:.2f} p/kwh ({periods['am'][0]:04d} to {periods['am'][-1]+29:04d})")
-        print(f"   Afternoon off peak average rate:  {self.period_avg['pm']:.2f} p/kwh ({periods['pm'][0]:04d} to {periods['pm'][-1]+29:04d})")
-        print(f"   Evening peak average rate:        {self.period_avg['pk']:.2f} p/kwh ({periods['pk'][0]:04d} to {periods['pk'][-1]+29:04d})")
+        for t in tracked.keys() :
+            print(f"  {tracked[t]['label'] + ' average unit price:':40} {self.period_avg[t]:.2f} p/kwh ({time_span(t)})")
         return
 
 
@@ -394,7 +434,7 @@ class Forecast :
             y = self.estimate[k]
             d = datetime.datetime.strptime(k, '%Y-%m-%d').strftime('%A')[:3]
             s += f"    {k[5:]} {d} : {y:5.2f} kwh\n"
-        return s
+        return s[:-1]
 
     def plot_estimate(self) :
         if not hasattr(self, 'estimate') :
@@ -408,7 +448,7 @@ class Forecast :
         alpha=0.07       # background transparency
         plt.plot(x, self.values, color='green', linestyle='solid', label='daily estimate', linewidth=2)
         if hasattr(self, 'avg') :
-            plt.axhline(self.avg, color='blue', linestyle='solid', label=f'average {self.avg:.1f} kwh / day', linewidth=1)
+            plt.axhline(self.avg, color='blue', linestyle='solid', label=f'average {self.avg:.1f} kwh / day', linewidth=2)
         plt.axhspan(0, self.threshold, color='red', alpha=0.1, label='threshold')
         plt.title(f"Solcast yield forecast for next {self.days} days (total yield = {self.total:.0f} kwh)", fontsize=16)
         plt.grid()
