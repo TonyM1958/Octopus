@@ -24,6 +24,8 @@ gsp = None              # region code
 imp_meter = None        # electricity import meter details
 exp_meter = None        # electricity export meter details
 gas_meter = None        # gas meter details
+page_width = 140        # maximum text string for display
+figure_width = 24       # width of plots
 
 regions = {'_A':'Eastern England', '_B':'East Midlands', '_C':'London', '_D':'Merseyside and Northern Wales', '_E':'West Midlands', '_F':'North Eastern England', '_G':'North Western England', '_H':'Southern England',
     '_J':'South Eastern England', '_K':'Southern Wales', '_L':'South Western England', '_M':'Yorkshire', '_N':'Southern Scotland', '_P':'Northern Scotland'}
@@ -115,15 +117,23 @@ class Meter :
         self.gsp = gsp
         return
 
-def account_setting(api_key = None, url = None, r = None, imp = None, exp = None, gas = None, debug = None) :
+def account_setting(api_key = None, url = None, r = None, imp = None, exp = None, gas = None, debug = None, p = None, f = None) :
     """
     Load account settings to use
     """ 
-    global debug_setting, base_url, gsp, imp_meter, exp_meter, gas_meter
+    global debug_setting, base_url, gsp, imp_meter, exp_meter, gas_meter, page_width, figure_width
     if debug is not None :
         debug_setting = debug
         if debug_setting > 1 :
             print(f"Debug set to {debug}")
+    if p is not None :
+        page_width = p
+        if debug_setting > 1 :
+            print(f"Page width set to {page_width}")
+    if f is not None :
+        figure_width = f
+        if debug_setting > 1 :
+            print(f"Figure width set to {figure_width}")
     if api_key is not None :
         credentials = HTTPBasicAuth(api_key,'')
         if debug_setting > 0 :
@@ -157,7 +167,7 @@ class Product :
     Load Product details
     """ 
 
-    def __init__(self, code = '', days = 14, clear_cache = False) :
+    def __init__(self, code = '', days = 7, clear_cache = False, period_to = None) :
         # load product details using a partial product code
         global product_codes, base_url, credentials
         if clear_cache :
@@ -220,63 +230,71 @@ class Product :
                 self.gas_code = t.get('code')
                 self.gas_day = c_float(t.get('standing_charge_inc_vat'))
                 self.gas_kwh = c_float(t.get('standard_unit_rate_inc_vat'))
-        # save number of days for prices
+        # load 30 minute pricing, if available
         if days > 31 :
             print(f"** too many days, maximum is 31")
             days = 31
         self.days = days
+        self.load_30_minute_prices(period_to)
         return
 
     def __str__(self) :
         # format product details for display
-        global regions, imp_meter, exp_meter, gas_meter
+        global regions, imp_meter, exp_meter, gas_meter, debug_setting, page_width
         if hasattr(self, 'code') :
+            standard_pricing = len(self.keys) != 48
             s = f"Product details for code: {self.code}\n"
             s += f"   Display name:      {self.display_name}\n"
             s += f"   Full name:         {self.full_name}\n"
-            s += f"   Description:       {self.description[:180]}\n"
-            s += f"   Is variable:       {self.is_variable}\n"
-            s += f"   Is green:          {self.is_green}\n"
-            s += f"   Is outgoing:       {self.is_outgoing}\n"
-            s += f"   Term:              {self.term} months\n"
+            s += f"   Description:       {self.description[:page_width]}\n"
             s += f"   Available from:    {self.available_from}\n"
             s += f"   Available to:      {self.available_to}\n"
+            if self.term is not None :
+                s += f"   Term:              {self.term} months\n"
             if imp_meter is not None :
                 if hasattr(self, 'gsp') :
                     s += f"   Your region (GSP): {regions[self.gsp]}\n"
                 if hasattr(self, 'imp_code') :
                     s += f"   Import price code: {self.imp_code}\n"
-                if hasattr(self, 'imp_day') :
-                    s += f"   Import day rate:   {self.imp_day} p/day\n"
-                if hasattr(self, 'imp_kwh') :
-                    s += f"   Import unit cost:  {self.imp_kwh} p/kwh\n"
+                if hasattr(self, 'imp_day'):
+                    s += f"   Import day rate:   {self.imp_day} p/day inc VAT\n"
+                if hasattr(self, 'imp_kwh') and standard_pricing :
+                    s += f"   Import unit cost:  {self.imp_kwh} p/kwh inc VAT\n"
             if exp_meter is not None:
                 if hasattr(self, 'exp_code') :
                     s += f"   Export price code: {self.exp_code}\n"
                 if hasattr(self, 'exp_day') :
-                    s += f"   Export day cost:   {self.exp_day} p/day\n"
-                if hasattr(self, 'exp_kwh') :
-                    s += f"   Export unit cost:  {self.exp_kwh} p/kwh\n"
+                    s += f"   Export day cost:   {self.exp_day} p/day inc VAT\n"
+                if hasattr(self, 'exp_kwh') and standard_pricing:
+                    s += f"   Export unit cost:  {self.exp_kwh} p/kwh inc VAT\n"
             if gas_meter is not None:
                 if hasattr(self, 'gas_code') :
                     s += f"   Gas price code:    {self.gas_code}\n"
                 if hasattr(self, 'gas_day') :
-                    s += f"   Gas day cost:      {self.gas_day} p/day\n"
+                    s += f"   Gas day cost:      {self.gas_day} p/day inc VAT\n"
                 if hasattr(self, 'gas_kwh') :
-                    s += f"   Gas unit cost:     {self.gas_kwh} p/kwh\n"
+                    s += f"   Gas unit cost:     {self.gas_kwh} p/kwh inc VAT\n"
+            if debug_setting > 1 :
+                s += f"   Is variable:       {self.is_variable}\n"
+                s += f"   Is green:          {self.is_green}\n"
+                s += f"   Is outgoing:       {self.is_outgoing}\n"
+            if not standard_pricing :
+                s += f"   Average " + (f"export prices" if self.is_outgoing else f"import prices inc VAT") + f" over last {self.days} days:\n"
+                for t in self.tracked.keys() :
+                    s += f"       {tracked[t]['label']+':':<20} {self.period_avg[t]:.2f} p/kwh ({time_span(t)})\n"
             return s[:-1]
         return f"** not a valid product\n"
 
     def load_30_minute_prices(self, period_to = None) :
         # get the pricing for a product
-        global periods, tracked
+        global tracked
         if self.code is None:
-            return None
+            return
         tariff_code = None
         if hasattr(self, 'imp_code') or hasattr(self, 'exp_code') :
             tariff_code = self.exp_code if self.is_outgoing else self.imp_code
         if tariff_code is None:
-            return None
+            return
         params = {}
         if period_to is None :
             period_to = datetime.datetime.now()
@@ -315,38 +333,35 @@ class Product :
             self.max.append(max(l))
         self.period_avg = {}
         self.per = []
-        for p in tracked.keys() :
+        self.tracked = tracked
+        for p in self.tracked.keys() :
             v = [self.averages[k] for k in time_list(p)[:-1]]
             self.period_avg[p] = sum(v) / len(v)
         return
 
-    def plot_30_minute_prices(self, period_to = None, figwidth=24) :
-        global periods, tracked
-        if not hasattr(self, 'prices') :
-            self.load_30_minute_prices(period_to)
+    def plot_30_minute_prices(self, period_to = None) :
+        global page_width, figure_width
         if len(self.keys) != 48 :
             print(f"** no 30 minute pricing for {self.full_name} ({self.code})")
             return
-        self.figsize = (figwidth, figwidth/3)     # size of charts
-        plt.figure(figsize=self.figsize)
+        plt.figure(figsize=(figure_width, figure_width/3))
         plt.plot(self.keys, self.avg, color='black', linestyle='solid', label='30 minute average', linewidth=2)
         plt.plot(self.keys, self.min, color='blue', linestyle='dashed', label='30 minute min', linewidth=0.8)
         plt.plot(self.keys, self.max, color='red', linestyle='dashed', label='30 minute max', linewidth=0.8)
-        for p in tracked.keys() :
+        for p in self.tracked.keys() :
             times = time_list(p)
             values = [self.period_avg[p] for t in times]
-            plt.plot(times, values, color=tracked[p]['color'], linestyle='dotted', label=tracked[p]['label'], linewidth=3)
-            plt.axvspan(times[0], times[-1], label=tracked[p]['label'], color=tracked[p]['color'], alpha=0.07)
-        plt.title(f"Average daily pricing (p/kwh) for {self.full_name} ({self.code}) over {self.days} days from {self.period_from.date()}", fontsize=16)
+            plt.plot(times, values, color=self.tracked[p]['color'], linestyle='dotted', label=self.tracked[p]['label'], linewidth=3)
+            plt.axvspan(times[0], times[-1], label=self.tracked[p]['label'], color=self.tracked[p]['color'], alpha=0.07)
+        plt.title(f"Average daily pricing (p/kwh inc VAT) for {self.full_name} ({self.code}) over {self.days} days from {self.period_from.date()}", fontsize=16)
         plt.grid(axis='x', which='major', linewidth=0.8)
         plt.grid(axis='y', which='major', linewidth=0.8)
         plt.grid(axis='y',which='minor', linewidth=0.4)
         plt.minorticks_on()
         plt.legend(fontsize=14)
         plt.xticks(rotation=45)
+        print()
         plt.show()
-        for t in tracked.keys() :
-            print(f"  {tracked[t]['label'] + ' average unit price:':40} {self.period_avg[t]:.2f} p/kwh ({time_span(t)})")
         return
 
 
@@ -454,5 +469,6 @@ class Forecast :
         plt.grid()
         plt.legend(fontsize=14)
         plt.xticks(rotation=45, ha='right')
+        print()
         plt.show()
         return
