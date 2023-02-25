@@ -14,14 +14,15 @@ available product codes for you. You only need to enter a partial code that is u
 
 Once you find a valid product, you can report key details by printing the product. This will show standard pricing including VAT for Octopus import tariffs and also export pricing for outgoing products.
 
-Where product as agile and have 30 minute pricing, you can call the method plot_30_minute_pricing() on the product. This will display a graph, averaged over a number of days, with the min, max and average price for
-each 30 minute slot. You can also define 'tracked' periods of time and these will be highlighted and the average pricing for that period will be displayed. The default tracked periods are:
+Where a product is agile and has 30 minute pricing available, you can call the method plot_30_minute_pricing() on the product. This will display a graph, averaged over a number of days, with the min,
+max and average price for each 30 minute slot. You can also view 'tracked' periods of time: these will be highlighted in the plot and the average pricing for each period will be displayed.
 
-* 'night': night off peak time period, typically 1am to 4am
-* 'am' : morning peak time periods, typically 6am to 10am
-* 'pm' : afternoon off peak time period, typically 1pm to 3pm
-* 'peak' : evening peak time period, typically 4pm to 8pm
+The tracked periods are named. The following are configured by default:
 
-You can adjust the time periods using the method period_setting as shown in the example ipynb.
+* night  : night off peak period, typically 1.30am to 5am
+* am     : morning peak periods, typically 6.30am to 10.30am
+* pm     : afternoon off peak period, typically 12.30pm to 4pm
+* peak   : evening peak period, typically 4pm to 8pm
 
+You can adjust the time periods using the method period_setting as shown in the example ipynb, using 24 hour / time notation. Please note that a period cannot run through midnight e.g. 2330 to 0130
 
