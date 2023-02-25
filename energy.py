@@ -1,11 +1,13 @@
 ##################################################################################################
 """
 Module:   Energy Analysis
-Date:     13 February 2023
-Author:   Tony Matthews
+Created:  13 February 2023
+Updated:  25 February 2023
+By:       Tony Matthews
 """
 ##################################################################################################
-
+# This is the code used for the loading and analysis of product data from the Octopus developer
+# api and for loading and displaying yield forecasts from Solcast.com.au.
 ##################################################################################################
 
 import os.path
@@ -19,7 +21,7 @@ from requests.auth import HTTPBasicAuth
 # global settings
 debug_setting = 0       # debug setting: 0 = silent, 1 = info, 2 = details
 base_url = 'https://api.octopus.energy/v1/'
-credentials = None      # account credetials for API access
+credentials = None      # account credetials for Octopus API access
 gsp = None              # region code
 imp_meter = None        # electricity import meter details
 exp_meter = None        # electricity export meter details
