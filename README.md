@@ -4,7 +4,7 @@ users to build simple scripts to analyse data that is specific to them.
 
 In addition, the code loads, aggregates and displays solar yield forcasts from http://solcast.com.au
 
-The core code is contained in [energy.py] and an example Jupyter notebook is provided in [energy.ipynb]. Clicking on link [energy.ipynb] will display the last uploaded notebook so you can see what this looks like.
+The core code is contained in 'energy.py' and an example Jupyter notebook is provided in 'energy.ipynb'. Clicking [energy.ipynb](energy.ipynb) will display the last uploaded notebook so you can see what this looks like.
 
 A file 'private.py' contains user keys and meter details and is not uploaded to the public github repository.
 Instead, a template file ['template private.py] is provided that a user needs to edit to add their personal details and then rename to 'private.py'
