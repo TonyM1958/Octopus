@@ -47,10 +47,10 @@ def c_float(n):
 # tracked time periods. Time is stored as 4 digit string
 tracked = {
         # tracked time periods
-        'night' : {'start' : '0130', 'end' : '0500', 'label' : 'Night time off peak', 'color' : 'green'},
-        'am'    : {'start' : '0630', 'end' : '1030', 'label' : 'Morning peak', 'color' : 'orange'},
+        'night' : {'start' : '0130', 'end' : '0500', 'label' : 'Night off peak', 'color' : 'green'},
+        'am'    : {'start' : '0600', 'end' : '1000', 'label' : 'Morning peak', 'color' : 'orange'},
         'pm'    : {'start' : '1230', 'end' : '1500', 'label' : 'Afternoon off peak', 'color' : 'grey'},
-        'peak'  : {'start' : '1600', 'end' : '2000', 'label' : 'Evening peak', 'color' : 'red'}}
+        'peak'  : {'start' : '1600', 'end' : '1900', 'label' : 'Evening peak', 'color' : 'red'}}
 
 def period_setting (t, start=None, end=None, label=None, color=None) :
     global tracked
@@ -169,7 +169,7 @@ class Product :
     Load Product details
     """ 
 
-    def __init__(self, code = '', days = 7, clear_cache = False, period_to = None) :
+    def __init__(self, code = '', clear_cache = False, period_to = None) :
         # load product details using a partial product code
         global product_codes, base_url, credentials
         if clear_cache :
@@ -233,10 +233,6 @@ class Product :
                 self.gas_day = c_float(t.get('standing_charge_inc_vat'))
                 self.gas_kwh = c_float(t.get('standard_unit_rate_inc_vat'))
         # load 30 minute pricing, if available
-        if days > 31 :
-            print(f"** too many days, maximum is 31")
-            days = 31
-        self.days = days
         self.load_30_minute_prices(period_to)
         return
 
@@ -244,7 +240,6 @@ class Product :
         # format product details for display
         global regions, imp_meter, exp_meter, gas_meter, debug_setting, page_width
         if hasattr(self, 'code') :
-            standard_pricing = len(self.keys) != 48
             s = f"Product details for code: {self.code}\n"
             s += f"   Display name:      {self.display_name}\n"
             s += f"   Full name:         {self.full_name}\n"
@@ -260,14 +255,14 @@ class Product :
                     s += f"   Import price code: {self.imp_code}\n"
                 if hasattr(self, 'imp_day'):
                     s += f"   Import day rate:   {self.imp_day} p/day inc VAT\n"
-                if hasattr(self, 'imp_kwh') and standard_pricing :
+                if hasattr(self, 'imp_kwh') and not self.is_agile :
                     s += f"   Import unit cost:  {self.imp_kwh} p/kwh inc VAT\n"
             if exp_meter is not None:
                 if hasattr(self, 'exp_code') :
                     s += f"   Export price code: {self.exp_code}\n"
                 if hasattr(self, 'exp_day') :
                     s += f"   Export day cost:   {self.exp_day} p/day inc VAT\n"
-                if hasattr(self, 'exp_kwh') and standard_pricing:
+                if hasattr(self, 'exp_kwh') and not self.is_agile:
                     s += f"   Export unit cost:  {self.exp_kwh} p/kwh inc VAT\n"
             if gas_meter is not None:
                 if hasattr(self, 'gas_code') :
@@ -280,10 +275,7 @@ class Product :
                 s += f"   Is variable:       {self.is_variable}\n"
                 s += f"   Is green:          {self.is_green}\n"
                 s += f"   Is outgoing:       {self.is_outgoing}\n"
-            if not standard_pricing :
-                s += f"   Average " + (f"export prices" if self.is_outgoing else f"import prices inc VAT") + f" over last {self.days} days:\n"
-                for t in self.tracked.keys() :
-                    s += f"       {tracked[t]['label']+':':<20} {self.period_avg[t]:.2f} p/kwh ({time_span(t)})\n"
+                s += f"   Is agile:          {self.is_agile}\n"
             return s[:-1]
         return f"** not a valid product\n"
 
@@ -299,12 +291,12 @@ class Product :
             return
         params = {}
         if period_to is None :
-            period_to = datetime.datetime.now()
-        self.period_to = period_to.replace(hour=23, minute=00, second=00, microsecond=0) + datetime.timedelta(days=1)
-        self.period_from = period_to + datetime.timedelta(days=-self.days-1)
+            period_to = (datetime.datetime.now() + datetime.timedelta(days=-1))
+        self.period_to = period_to.replace(hour=23, minute=59, second=59, microsecond=0)
+        self.period_from = period_to + datetime.timedelta(days=-32)
         params['period_from'] = self.period_from
         params['period_to'] = self.period_to
-        params['page_size'] = self.days * 48
+        params['page_size'] = 31 * 48
         if debug_setting > 1 :
             print(params)
         response = requests.get(base_url + 'products/' + self.code + '/electricity-tariffs/' + tariff_code + '/standard-unit-rates/', auth=credentials, params=params)
@@ -321,14 +313,31 @@ class Product :
                 self.prices[hour] = {}
             self.prices[hour][day] = value
         self.keys = sorted(self.prices)
-        if len(self.keys) != 48 :
+        self.dates = sorted(self.prices[self.keys[0]], reverse=True)
+        if debug_setting > 1 :
+            print(self.dates)
+        self.is_agile = len(self.keys) == 48
+        return
+
+    def plot_30_minute_prices(self, days = 7) :
+        global page_width, figure_width
+        if not self.is_agile :
+            print(f"** 30 minute pricing is not available for {self.full_name} ({self.code})")
             return
+        if days > 31 :
+            days = 31
+        self.days = days
         self.averages = {}
         self.avg = []
         self.min = []
         self.max = []
         for t in self.keys :
-            l = [v for v in self.prices[t].values()]
+            l = []
+            for d in self.dates[:days] :
+                if d in self.prices[t] :
+                    l.append(self.prices[t][d])
+                else :
+                    print(f"** missing key {d} for {t}")
             self.averages[t] = sum(l) / len(l)
             self.avg.append(self.averages[t])
             self.min.append(min(l))
@@ -339,30 +348,28 @@ class Product :
         for p in self.tracked.keys() :
             v = [self.averages[k] for k in time_list(p)[:-1]]
             self.period_avg[p] = sum(v) / len(v)
-        return
-
-    def plot_30_minute_prices(self, period_to = None) :
-        global page_width, figure_width
-        if len(self.keys) != 48 :
-            print(f"** no 30 minute pricing for {self.full_name} ({self.code})")
-            return
+        if debug_setting > 0 :
+            print(f"   Average " + (f"export prices" if self.is_outgoing else f"import prices inc VAT") + f" for " + (f"{self.days} days to " if self.days > 1 else f"" ) + f" {self.period_to.date()}:")
+            for t in self.tracked.keys() :
+                print(f"       {tracked[t]['label']+':':<20} {self.period_avg[t]:.2f} p/kwh ({time_span(t)})")
+            print()
         plt.figure(figsize=(figure_width, figure_width/3))
-        plt.plot(self.keys, self.avg, color='black', linestyle='solid', label='30 minute average', linewidth=2)
-        plt.plot(self.keys, self.min, color='blue', linestyle='dashed', label='30 minute min', linewidth=0.8)
-        plt.plot(self.keys, self.max, color='red', linestyle='dashed', label='30 minute max', linewidth=0.8)
+        plt.plot(self.keys, self.avg, color='black', linestyle='solid', label='Average price', linewidth=2)
+        if self.days > 1 :
+            plt.plot(self.keys, self.min, color='blue', linestyle='dashed', label='Minimum price', linewidth=0.8)
+            plt.plot(self.keys, self.max, color='red', linestyle='dashed', label='Maximum price', linewidth=0.8)
         for p in self.tracked.keys() :
             times = time_list(p)
             values = [self.period_avg[p] for t in times]
             plt.plot(times, values, color=self.tracked[p]['color'], linestyle='dotted', label=self.tracked[p]['label'], linewidth=3)
             plt.axvspan(times[0], times[-1], label=self.tracked[p]['label'], color=self.tracked[p]['color'], alpha=0.07)
-        plt.title(f"Average daily pricing (p/kwh inc VAT) for {self.full_name} ({self.code}) over {self.days} days from {self.period_from.date()}", fontsize=16)
+        plt.title(f"Average daily pricing (p/kwh inc VAT) for {self.full_name} ({self.code}) over {self.days} days to {self.period_to.date()}", fontsize=16)
         plt.grid(axis='x', which='major', linewidth=0.8)
         plt.grid(axis='y', which='major', linewidth=0.8)
         plt.grid(axis='y',which='minor', linewidth=0.4)
         plt.minorticks_on()
         plt.legend(fontsize=14)
         plt.xticks(rotation=45)
-        print()
         plt.show()
         return
 
