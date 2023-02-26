@@ -26,7 +26,7 @@ gsp = None              # region code
 imp_meter = None        # electricity import meter details
 exp_meter = None        # electricity export meter details
 gas_meter = None        # gas meter details
-page_width = 140        # maximum text string for display
+page_width = 100        # maximum text string for display
 figure_width = 24       # width of plots
 
 regions = {'_A':'Eastern England', '_B':'East Midlands', '_C':'London', '_D':'Merseyside and Northern Wales', '_E':'West Midlands', '_F':'North Eastern England', '_G':'North Western England', '_H':'Southern England',
@@ -280,7 +280,7 @@ class Product :
         return f"** not a valid product\n"
 
     def load_30_minute_prices(self, period_to = None) :
-        # get the pricing for a product
+        # get the pricing for a product over the last 31 days
         global tracked
         if self.code is None:
             return
@@ -291,9 +291,9 @@ class Product :
             return
         params = {}
         if period_to is None :
-            period_to = (datetime.datetime.now() + datetime.timedelta(days=-1))
-        self.period_to = period_to.replace(hour=23, minute=59, second=59, microsecond=0)
-        self.period_from = period_to + datetime.timedelta(days=-32)
+            period_to = datetime.datetime.now()
+        self.period_to = period_to.replace(hour=23, minute=00, second=00, microsecond=0)
+        self.period_from = period_to + datetime.timedelta(days=-31)
         params['period_from'] = self.period_from
         params['period_to'] = self.period_to
         params['page_size'] = 31 * 48
@@ -314,6 +314,8 @@ class Product :
             self.prices[hour][day] = value
         self.keys = sorted(self.prices)
         self.dates = sorted(self.prices[self.keys[0]], reverse=True)
+        if debug_setting > 1 :
+            print(f"Date range is: {self.dates}")
         if debug_setting > 1 :
             print(self.dates)
         self.is_agile = len(self.keys) == 48
@@ -337,33 +339,38 @@ class Product :
                 if d in self.prices[t] :
                     l.append(self.prices[t][d])
                 else :
-                    print(f"** missing key {d} for {t}")
-            self.averages[t] = sum(l) / len(l)
-            self.avg.append(self.averages[t])
-            self.min.append(min(l))
-            self.max.append(max(l))
+                    if debug_setting > 1 :
+                        print(f"** missing key {d} for {t}")
+            if len(l) > 0 :
+                self.averages[t] = sum(l) / len(l)
+                self.avg.append(self.averages[t])
+                self.min.append(min(l))
+                self.max.append(max(l))
         self.period_avg = {}
         self.per = []
         self.tracked = tracked
         for p in self.tracked.keys() :
             v = [self.averages[k] for k in time_list(p)[:-1]]
             self.period_avg[p] = sum(v) / len(v)
+        title = (f"export prices" if self.is_outgoing else f"import prices inc VAT") + f" in p/kwh for " + (f"{self.days} days from " if self.days > 1 else f"" ) + f"{self.dates[self.days-1]}"
+        if self.days > 1 :
+            title += f" to {self.dates[0]}"
         if debug_setting > 0 :
-            print(f"   Average " + (f"export prices" if self.is_outgoing else f"import prices inc VAT") + f" for " + (f"{self.days} days to " if self.days > 1 else f"" ) + f" {self.period_to.date()}:")
+            print(f"   Period average " + title)
             for t in self.tracked.keys() :
                 print(f"       {tracked[t]['label']+':':<20} {self.period_avg[t]:.2f} p/kwh ({time_span(t)})")
             print()
         plt.figure(figsize=(figure_width, figure_width/3))
-        plt.plot(self.keys, self.avg, color='black', linestyle='solid', label='Average price', linewidth=2)
+        plt.plot(sorted(self.averages.keys()), self.avg, color='black', linestyle='solid', label='Average 30 minute price', linewidth=2)
         if self.days > 1 :
-            plt.plot(self.keys, self.min, color='blue', linestyle='dashed', label='Minimum price', linewidth=0.8)
-            plt.plot(self.keys, self.max, color='red', linestyle='dashed', label='Maximum price', linewidth=0.8)
+            plt.plot(self.keys, self.min, color='blue', linestyle='dashed', label='Minimum 30 minute price', linewidth=0.8)
+            plt.plot(self.keys, self.max, color='red', linestyle='dashed', label='Maximum 30 minute price', linewidth=0.8)
         for p in self.tracked.keys() :
             times = time_list(p)
             values = [self.period_avg[p] for t in times]
-            plt.plot(times, values, color=self.tracked[p]['color'], linestyle='dotted', label=self.tracked[p]['label'], linewidth=3)
-            plt.axvspan(times[0], times[-1], label=self.tracked[p]['label'], color=self.tracked[p]['color'], alpha=0.07)
-        plt.title(f"Average daily pricing (p/kwh inc VAT) for {self.full_name} ({self.code}) over {self.days} days to {self.period_to.date()}", fontsize=16)
+            plt.plot(times, values, color=self.tracked[p]['color'], linestyle='solid', label=self.tracked[p]['label'] + f" average", linewidth=3)
+            plt.axvspan(times[0], times[-1], color=self.tracked[p]['color'], alpha=0.07)
+        plt.title(f"{self.full_name}: Average 30 minute {title}", fontsize=16)
         plt.grid(axis='x', which='major', linewidth=0.8)
         plt.grid(axis='y', which='major', linewidth=0.8)
         plt.grid(axis='y',which='minor', linewidth=0.4)
@@ -383,12 +390,14 @@ solcast_url = 'https://api.solcast.com.au/'
 solcast_credentials = None
 solcast_rids = []
 solcast_save = None
+solcast_cal = 1.0
+solcast_threshold = None
 
-def solcast_setting(api_key = None, url = None, rids = None, save = None) :
+def solcast_setting(api_key = None, url = None, rids = None, save = None, cal = None, th = None) :
     """
     Load account settings to use
     """ 
-    global debug_setting, solcast_url, solcast_credentials, solcast_rids, solcast_save
+    global debug_setting, solcast_url, solcast_credentials, solcast_rids, solcast_save, solcast_cal, solcast_threshold
     if api_key is not None :
         solcast_credentials = HTTPBasicAuth(api_key, '')
         if debug_setting > 0 :
@@ -403,6 +412,16 @@ def solcast_setting(api_key = None, url = None, rids = None, save = None) :
             print(f"Solcast resource ids: {solcast_rids}")
     if save is not None :
         solcast_save = save
+        if debug_setting > 1 :
+            print(f"Solcast save: {solcast_save}")
+    if cal is not None :
+        solcast_cal = cal
+        if debug_setting > 0 :
+            print(f"Solcast calibration factor: {solcast_cal}")
+    if th is not None :
+        solcast_threshold = th
+        if debug_setting > 0 :
+            print(f"Solcast threshold: {solcast_threshold}")
     return
 
 class Forecast :
@@ -410,74 +429,94 @@ class Forecast :
     Load Forecast daily yield
     """ 
 
-    def __init__(self, days=14, period='PT30M', threshold=10, reload=0) :
-        global debug_setting, solcast_url, solcast_credentials, solcast_rids, solcast_save
-        if days > 14 :
-            print(f"** maximum number of days exceeded")
-            days = 14
-        self.threshold = threshold
+    def __init__(self, reload = 0) :
+        global debug_setting, solcast_url, solcast_credentials, solcast_rids, solcast_save, solcast_cal
         if reload == 1 and os.path.exists(solcast_save):
             os.remove(solcast_save)
         if solcast_save is not None and os.path.exists(solcast_save):
             f = open(solcast_save)
-            self.forecasts = json.load(f)
+            self.data = json.load(f)
             f.close()
         else :
-            self.forecasts = {}
-            for rid in solcast_rids :
-                params = {'period' : period, 'format' : 'json', 'hours' : days * 24}
-                response = requests.get(solcast_url + 'rooftop_sites/' + rid + '/forecasts', auth = solcast_credentials, params = params)
-                if response.status_code != 200 :
-                    print(f"** response code getting product details for {rid} from {response.url} was {response.status_code}")
-                    return
-                self.forecasts[rid] = response.json().get('forecasts')
+            self.data = {}
+            self.data['estimated_actuals'] = {}
+            self.data['forecasts'] = {}
+            params = {'format' : 'json'}
+            for t in self.data.keys() :
+                for rid in solcast_rids :
+                    response = requests.get(solcast_url + 'rooftop_sites/' + rid + '/' + t, auth = solcast_credentials, params = params)
+                    if response.status_code != 200 :
+                        print(f"** response code getting {t} for {rid} from {response.url} was {response.status_code}")
+                        return
+                    self.data[t][rid] = response.json().get(t)
             if solcast_save is not None :
                 f = open(solcast_save, 'w')
-                json.dump(self.forecasts, f, sort_keys = True, indent=4, ensure_ascii= False)
+                json.dump(self.data, f, sort_keys = True, indent=4, ensure_ascii= False)
                 f.close()
-        self.estimate = {}
+        self.daily = {}
         self.days = 0
-        for k in self.forecasts.keys() :
-            for f in self.forecasts[k] :
-                date = f.get('period_end')[:10]
-                if date not in self.estimate.keys() :
-                    self.estimate[date] = 0.0
-                    self.days += 1
-                self.estimate[date] += c_float(f.get('pv_estimate')/2)      # 30 minute yield / 2 = kwh...
-        self.keys = sorted(self.estimate.keys())[1:]
-        self.values = [self.estimate[k] for k in self.keys]
+        for t in self.data.keys() :                 # estimated_actuals / forecasts
+            actual = t != 'forecasts'
+            for rid in self.data[t].keys() :
+                if self.data[t][rid] is not None :
+                    for f in self.data[t][rid] :
+                        date = f.get('period_end')[:10]
+                        if date not in self.daily.keys() :
+                            self.daily[date] = {'actual' : actual, 'value' : 0.0}
+                            self.days += 1
+                        self.daily[date]['value'] += c_float(f.get('pv_estimate')) / 2      # 30 minute yield / 2 = kwh
+        self.keys = sorted(self.daily.keys())
+        self.values = [self.daily[k]['value'] for k in self.keys]
         self.total = sum(self.values)
         if len(self.keys) >0 :
             self.avg = self.total / len(self.values)
-        self.days -= 1
+        self.cal = solcast_cal
+        self.threshold = solcast_threshold
         return
 
     def __str__(self) :
-        s = f'\nSolcast yield forecast for next {self.days} days:\n\n'
+        s = f'\nSolcast yield over {self.days} days'
+        if self.cal is not None and self.cal != 1.0 :
+            s += f", calibration = {self.cal}"
+        s += f" (A = actuals, F = forecasts):\n\n"
         for k in self.keys :
-            y = self.estimate[k]
+            tag = 'A' if self.daily[k]['actual'] else 'F'
+            y = self.daily[k]['value'] * self.cal
             d = datetime.datetime.strptime(k, '%Y-%m-%d').strftime('%A')[:3]
-            s += f"    {k[5:]} {d} : {y:5.2f} kwh\n"
-        return s[:-1]
+            s += f"    {k} {d} {tag}: {y:5.2f} kwh\n"
+        return s
 
-    def plot_estimate(self) :
-        if not hasattr(self, 'estimate') :
-            print(f"** no estimate available")
+    def plot_daily(self, th = None) :
+        if not hasattr(self, 'daily') :
+            print(f"** no daily data available")
             return
-        x = [f"{k[5:]} {datetime.datetime.strptime(k, '%Y-%m-%d').strftime('%A')[:3]}" for k in self.keys]
-        y = [self.estimate[k] for k in self.keys]
         figwidth = 12 * self.days / 7
         self.figsize = (figwidth, figwidth/3)     # size of charts
         plt.figure(figsize=self.figsize)
-        alpha=0.07       # background transparency
-        plt.plot(x, self.values, color='green', linestyle='solid', label='daily estimate', linewidth=2)
+        # plot actuals
+        x = [f"{k} {datetime.datetime.strptime(k, '%Y-%m-%d').strftime('%A')[:3]} " for k in self.keys if self.daily[k]['actual']]
+        y = [self.daily[k]['value'] * self.cal for k in self.keys if self.daily[k]['actual']]
+        if x is not None and len(x) != 0 :
+            plt.bar(x, y, color='orange', linestyle='solid', label='actual', linewidth=2)
+        # plot forecasts
+        x = [f"{k} {datetime.datetime.strptime(k, '%Y-%m-%d').strftime('%A')[:3]} " for k in self.keys if not self.daily[k]['actual']]
+        y = [self.daily[k]['value'] * self.cal for k in self.keys if not self.daily[k]['actual']]
+        if x is not None and len(x) != 0 :
+            plt.bar(x, y, color='green', linestyle='solid', label='forecast', linewidth=2)
+        # annotations
         if hasattr(self, 'avg') :
             plt.axhline(self.avg, color='blue', linestyle='solid', label=f'average {self.avg:.1f} kwh / day', linewidth=2)
-        plt.axhspan(0, self.threshold, color='red', alpha=0.1, label='threshold')
-        plt.title(f"Solcast yield forecast for next {self.days} days (total yield = {self.total:.0f} kwh)", fontsize=16)
+        if th is not None :
+            self.threshold = th
+        if self.threshold is not None and self.threshold > 0 :
+            plt.axhspan(0, th, color='red', alpha=0.1, label='threshold')
+        title = f"Solcast yield over {self.days} days"
+        if self.cal != 1.0 :
+            title += f" (calibration = {self.cal})"
+        title += f". Total yield = {self.total:.0f} kwh"    
+        plt.title(title, fontsize=16)
         plt.grid()
         plt.legend(fontsize=14)
         plt.xticks(rotation=45, ha='right')
-        print()
         plt.show()
         return
