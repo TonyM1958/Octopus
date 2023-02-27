@@ -424,12 +424,14 @@ def solcast_setting(api_key = None, url = None, rids = None, save = None, cal = 
             print(f"Solcast threshold: {solcast_threshold}")
     return
 
-class Forecast :
+class Solcast :
     """
-    Load Forecast daily yield
+    Load Solcast Estimate / ACtuals / Forecast daily yield
     """ 
 
-    def __init__(self, reload = 0) :
+    def __init__(self, days = 7, reload = 0) :
+        # days sets the number of days for actuals and forecasts.
+        # The actual and forecast overlaps in the middle, so the total number of days shown is 2 * days - 1.
         global debug_setting, solcast_url, solcast_credentials, solcast_rids, solcast_save, solcast_cal
         if reload == 1 and os.path.exists(solcast_save):
             os.remove(solcast_save)
@@ -439,9 +441,9 @@ class Forecast :
             f.close()
         else :
             self.data = {}
-            self.data['estimated_actuals'] = {}
             self.data['forecasts'] = {}
-            params = {'format' : 'json'}
+            self.data['estimated_actuals'] = {}
+            params = {'format' : 'json', 'hours' : 168}
             for t in self.data.keys() :
                 for rid in solcast_rids :
                     response = requests.get(solcast_url + 'rooftop_sites/' + rid + '/' + t, auth = solcast_credentials, params = params)
@@ -454,28 +456,32 @@ class Forecast :
                 json.dump(self.data, f, sort_keys = True, indent=4, ensure_ascii= False)
                 f.close()
         self.daily = {}
-        self.days = 0
         for t in self.data.keys() :                 # estimated_actuals / forecasts
             actual = t != 'forecasts'
-            for rid in self.data[t].keys() :
+            for rid in self.data[t].keys() :            # aggregate the sites
                 if self.data[t][rid] is not None :
-                    for f in self.data[t][rid] :
+                    for f in self.data[t][rid] :            # aggregate 30 minute slots into total for date
                         date = f.get('period_end')[:10]
                         if date not in self.daily.keys() :
                             self.daily[date] = {'actual' : actual, 'value' : 0.0}
-                            self.days += 1
                         self.daily[date]['value'] += c_float(f.get('pv_estimate')) / 2      # 30 minute yield / 2 = kwh
-        self.keys = sorted(self.daily.keys())
+        # ignore first and last dates as these are forecast and actuals for part of the day, so not accurate
+        self.keys = sorted(self.daily.keys())[1:-1]
+        self.days = len(self.keys)
+        # trim the range if fewer days have been requested
+        while self.days > 2 * days :
+            self.keys = self.keys[1:-1]
+            self.days = len(self.keys)
         self.values = [self.daily[k]['value'] for k in self.keys]
         self.total = sum(self.values)
-        if len(self.keys) >0 :
-            self.avg = self.total / len(self.values)
+        if self.days > 0 :
+            self.avg = self.total / self.days
         self.cal = solcast_cal
         self.threshold = solcast_threshold
         return
 
     def __str__(self) :
-        s = f'\nSolcast yield over {self.days} days'
+        s = f'\nSolcast yield covering {self.days} days'
         if self.cal is not None and self.cal != 1.0 :
             s += f", calibration = {self.cal}"
         s += f" (A = actuals, F = forecasts):\n\n"
@@ -510,7 +516,7 @@ class Forecast :
             self.threshold = th
         if self.threshold is not None and self.threshold > 0 :
             plt.axhspan(0, th, color='red', alpha=0.1, label='threshold')
-        title = f"Solcast yield over {self.days} days"
+        title = f"Solcast yield covering {self.days} days"
         if self.cal != 1.0 :
             title += f" (calibration = {self.cal})"
         title += f". Total yield = {self.total:.0f} kwh"    
