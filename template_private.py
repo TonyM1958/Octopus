@@ -12,10 +12,10 @@ Date:     23 February 2023
 from energy import Meter
 
 # private data
-octopus_api_key = 'sk_live_ ****'                                           # your API key copied from your Octopus account developer settings
-imp_meter = Meter(mpn = '** mpan **', ser = '** serial number **')          # the MPAN and serial number of your import meter
-exp_meter = Meter(mpn = '** mpan **', ser = '** serial number **')          # the MPAN and serial number for export meter (serial may be same import and export, but MPAN is different)
-gas_meter = Meter(mpn = '** mprn **', ser = '** serial number **')          # the MPRN and serial number for your gas meter               
+octopus_api_key = 'sk_live_****'                                                    # your API key copied from your Octopus account developer settings
+imp_meter = Meter(mpan = '**mpan**', ser = '**serial number**')                     # the MPAN and serial number of your import meter
+exp_meter = Meter(mpan = '**mpan**', ser = '**serial number**', export = True)      # the MPAN and serial number for export meter (serial may be same import and export, but MPAN is different)
+gas_meter = Meter(mprn = '**mprn**', ser = '**serial number**')                     # the MPRN and serial number for your gas meter               
 
 solcast_api_key = '****'      # your API key from the Solcast account
 rids = ['****','****']        # the rids for the Home PV system sites you setup in Solcast. The free tier allows you to setup 2 sites e.g. east and west facing panels

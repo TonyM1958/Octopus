@@ -2,7 +2,7 @@
 """
 Module:   Energy Analysis
 Created:  13 February 2023
-Updated:  25 February 2023
+Updated:  27 February 2023
 By:       Tony Matthews
 """
 ##################################################################################################
@@ -106,18 +106,38 @@ class Meter :
     """
     Load meter info
     """
-    def __init__(self, mpn, ser) :
-        global debug_setting, base_url, gsp, credentials
-        self.mpn = mpn
+    def __init__(self, mpan = None, mprn = None, ser = None, export = False) :
+        global debug_setting, base_url, gsp, credentials, regions
+        if mpan is not None :
+            self.path = 'electricity-meter-points'
+            self.mpan = mpan
+            self.mpn = mpan
+            self.is_export = export
+        elif mprn is not None :
+            self.path = 'gas-meter-points'
+            self.mprn = mprn
+            self.mpn = mprn
+            self.is_export = False
         self.ser = ser
-        if gsp is None :
-            response = requests.get(base_url + 'electricity-meter-points/' + self.mpn + '/', auth=credentials)
+        if hasattr(self, 'mpan') and gsp is None and not self.is_export :
+            response = requests.get(base_url + self.path + '/' + self.mpan + '/', auth=credentials)
             if response.status_code == 200:
                 gsp = response.json().get("gsp")
-                if debug_setting > 1 :
-                    print(f"{self.mpn} / {self.ser} validated")
         self.gsp = gsp
+        self.region = regions[self.gsp] if self.gsp is not None else None
         return
+
+    def __str__(self) :
+        # return printable meter info
+        s =  f"Path:      {self.path}\n"
+        s += f"Type:      {'Export' if self.is_export else 'Import'}\n"
+        if hasattr(self, 'mpan') :
+            s += f"MPAN:      {self.mpan}\n"
+        if hasattr(self,'mprn') :
+            s += f"MPRN:      {self.mprn}\n"
+        s += f"Serial No: {self.ser}\n"
+        s += f"GSP:       {self.gsp} ({self.region})\n"
+        return s
 
 def account_setting(api_key = None, url = None, r = None, imp = None, exp = None, gas = None, debug = None, p = None, f = None) :
     """
@@ -237,7 +257,7 @@ class Product :
         return
 
     def __str__(self) :
-        # format product details for display
+        # return printable product details
         global regions, imp_meter, exp_meter, gas_meter, debug_setting, page_width
         if hasattr(self, 'code') :
             s = f"Product details for code: {self.code}\n"
@@ -481,6 +501,7 @@ class Solcast :
         return
 
     def __str__(self) :
+        # return printable Solcast info
         s = f'\nSolcast yield covering {self.days} days'
         if self.cal is not None and self.cal != 1.0 :
             s += f", calibration = {self.cal}"
