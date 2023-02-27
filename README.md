@@ -1,7 +1,7 @@
 # Energy Analysis
 This project provides code to download, analyse and display product and price information using the [Octopus Developer API](https://developer.octopus.energy/docs/api/).
 
-In addition, the code loads, aggregates and displays solar yield forcasts from http://solcast.com.au
+In addition, the code loads, aggregates and displays solar yield actuals and forcasts from http://solcast.com.au over a number of days (maximum forecast available is 7 days ahead).
 
 It uses Python for loading and analysis and Jupyter Lab for display. Jupyter Lab provides a flexible way for users to build simple scripts to analyse data that is specific to them.
 
