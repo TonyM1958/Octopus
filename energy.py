@@ -450,9 +450,11 @@ class Solcast :
     """ 
 
     def __init__(self, days = 7, reload = 0) :
-        # days sets the number of days for actuals and forecasts.
-        # The actual and forecast overlaps in the middle, so the total number of days shown is 2 * days - 1.
+        # days sets the number of days to get for forecasts and estimated.
+        # The forecasts and estimated both include the current date, so the total number of days covered is 2 * days - 1.
+        # The forecasts and estimated also both include the current time, so the data has to be de-duplicated to get an accurate total for a day
         global debug_setting, solcast_url, solcast_credentials, solcast_rids, solcast_save, solcast_cal
+        data_sets = ['forecasts', 'estimated_actuals']
         if reload == 1 and os.path.exists(solcast_save):
             os.remove(solcast_save)
         if solcast_save is not None and os.path.exists(solcast_save):
@@ -461,10 +463,9 @@ class Solcast :
             f.close()
         else :
             self.data = {}
-            self.data['forecasts'] = {}
-            self.data['estimated_actuals'] = {}
-            params = {'format' : 'json', 'hours' : 168}
-            for t in self.data.keys() :
+            params = {'format' : 'json', 'hours' : 168, 'period' : 'PT30M'}
+            for t in data_sets :
+                self.data[t] = {}
                 for rid in solcast_rids :
                     response = requests.get(solcast_url + 'rooftop_sites/' + rid + '/' + t, auth = solcast_credentials, params = params)
                     if response.status_code != 200 :
@@ -476,16 +477,23 @@ class Solcast :
                 json.dump(self.data, f, sort_keys = True, indent=4, ensure_ascii= False)
                 f.close()
         self.daily = {}
-        for t in self.data.keys() :                 # estimated_actuals / forecasts
-            actual = t != 'forecasts'
-            for rid in self.data[t].keys() :            # aggregate the sites
+        for t in data_sets :
+            for rid in self.data[t].keys() :            # aggregate across sites
                 if self.data[t][rid] is not None :
-                    for f in self.data[t][rid] :            # aggregate 30 minute slots into total for date
-                        date = f.get('period_end')[:10]
+                    for f in self.data[t][rid] :            # aggregate 30 minute slots into total for each day
+                        period_end = f.get('period_end')
+                        date = period_end[:10]
+                        time = period_end[11:16]
                         if date not in self.daily.keys() :
-                            self.daily[date] = {'actual' : actual, 'value' : 0.0}
-                        self.daily[date]['value'] += c_float(f.get('pv_estimate')) / 2      # 30 minute yield / 2 = kwh
-        # ignore first and last dates as these are forecast and actuals for part of the day, so not accurate
+                            self.daily[date] = {'forecast' : t == 'forecasts', 'value' : 0.0}
+                        if rid not in self.daily[date].keys() :
+                            self.daily[date][rid] = []
+                        if time not in self.daily[date][rid] :
+                            self.daily[date]['value'] += c_float(f.get('pv_estimate')) / 2      # 30 minute yield / 2 = kwh
+                            self.daily[date][rid].append(time)
+                        elif debug_setting > 1 :
+                                print(f"** overlapping data was ignored for {rid} in {t} at {date} {time}")
+        # ignore first and last dates as these are forecast and estimates only cover part of the day, so are not accurate
         self.keys = sorted(self.daily.keys())[1:-1]
         self.days = len(self.keys)
         # trim the range if fewer days have been requested
@@ -502,12 +510,12 @@ class Solcast :
 
     def __str__(self) :
         # return printable Solcast info
-        s = f'\nSolcast yield covering {self.days} days'
+        s = f'\nSolcast yield for {self.days} days'
         if self.cal is not None and self.cal != 1.0 :
             s += f", calibration = {self.cal}"
-        s += f" (A = actuals, F = forecasts):\n\n"
+        s += f" (E = estimated, F = forecasts):\n\n"
         for k in self.keys :
-            tag = 'A' if self.daily[k]['actual'] else 'F'
+            tag = 'F' if self.daily[k]['forecast'] else 'E'
             y = self.daily[k]['value'] * self.cal
             d = datetime.datetime.strptime(k, '%Y-%m-%d').strftime('%A')[:3]
             s += f"    {k} {d} {tag}: {y:5.2f} kwh\n"
@@ -520,14 +528,14 @@ class Solcast :
         figwidth = 12 * self.days / 7
         self.figsize = (figwidth, figwidth/3)     # size of charts
         plt.figure(figsize=self.figsize)
-        # plot actuals
-        x = [f"{k} {datetime.datetime.strptime(k, '%Y-%m-%d').strftime('%A')[:3]} " for k in self.keys if self.daily[k]['actual']]
-        y = [self.daily[k]['value'] * self.cal for k in self.keys if self.daily[k]['actual']]
+        # plot estimated
+        x = [f"{k} {datetime.datetime.strptime(k, '%Y-%m-%d').strftime('%A')[:3]} " for k in self.keys if not self.daily[k]['forecast']]
+        y = [self.daily[k]['value'] * self.cal for k in self.keys if not self.daily[k]['forecast']]
         if x is not None and len(x) != 0 :
-            plt.bar(x, y, color='orange', linestyle='solid', label='actual', linewidth=2)
+            plt.bar(x, y, color='orange', linestyle='solid', label='estimated', linewidth=2)
         # plot forecasts
-        x = [f"{k} {datetime.datetime.strptime(k, '%Y-%m-%d').strftime('%A')[:3]} " for k in self.keys if not self.daily[k]['actual']]
-        y = [self.daily[k]['value'] * self.cal for k in self.keys if not self.daily[k]['actual']]
+        x = [f"{k} {datetime.datetime.strptime(k, '%Y-%m-%d').strftime('%A')[:3]} " for k in self.keys if self.daily[k]['forecast']]
+        y = [self.daily[k]['value'] * self.cal for k in self.keys if self.daily[k]['forecast']]
         if x is not None and len(x) != 0 :
             plt.bar(x, y, color='green', linestyle='solid', label='forecast', linewidth=2)
         # annotations
@@ -537,7 +545,7 @@ class Solcast :
             self.threshold = th
         if self.threshold is not None and self.threshold > 0 :
             plt.axhspan(0, th, color='red', alpha=0.1, label='threshold')
-        title = f"Solcast yield covering {self.days} days"
+        title = f"Solcast yield for {self.days} days"
         if self.cal != 1.0 :
             title += f" (calibration = {self.cal})"
         title += f". Total yield = {self.total:.0f} kwh"    
