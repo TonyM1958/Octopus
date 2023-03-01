@@ -463,7 +463,7 @@ class Solcast :
             f.close()
         else :
             self.data = {}
-            params = {'format' : 'json', 'hours' : 168, 'period' : 'PT30M'}
+            params = {'format' : 'json', 'hours' : 168, 'period' : 'PT30M'}     # always get 168 x 30 min values
             for t in data_sets :
                 self.data[t] = {}
                 for rid in solcast_rids :
@@ -477,19 +477,21 @@ class Solcast :
                 json.dump(self.data, f, sort_keys = True, indent=4, ensure_ascii= False)
                 f.close()
         self.daily = {}
+        self.rids = []
         for t in data_sets :
-            for rid in self.data[t].keys() :            # aggregate across sites
+            for rid in self.data[t].keys() :            # aggregate sites
                 if self.data[t][rid] is not None :
-                    for f in self.data[t][rid] :            # aggregate 30 minute slots into total for each day
+                    self.rids.append(rid)
+                    for f in self.data[t][rid] :            # aggregate 30 minute slots for each day
                         period_end = f.get('period_end')
                         date = period_end[:10]
                         time = period_end[11:16]
                         if date not in self.daily.keys() :
-                            self.daily[date] = {'forecast' : t == 'forecasts', 'value' : 0.0}
+                            self.daily[date] = {'forecast' : t == 'forecasts', 'kwh' : 0.0}
                         if rid not in self.daily[date].keys() :
                             self.daily[date][rid] = []
                         if time not in self.daily[date][rid] :
-                            self.daily[date]['value'] += c_float(f.get('pv_estimate')) / 2      # 30 minute yield / 2 = kwh
+                            self.daily[date]['kwh'] += c_float(f.get('pv_estimate')) / 2      # 30 minute kw yield / 2 = kwh
                             self.daily[date][rid].append(time)
                         elif debug_setting > 1 :
                                 print(f"** overlapping data was ignored for {rid} in {t} at {date} {time}")
@@ -500,7 +502,7 @@ class Solcast :
         while self.days > 2 * days :
             self.keys = self.keys[1:-1]
             self.days = len(self.keys)
-        self.values = [self.daily[k]['value'] for k in self.keys]
+        self.values = [self.daily[k]['kwh'] for k in self.keys]
         self.total = sum(self.values)
         if self.days > 0 :
             self.avg = self.total / self.days
@@ -510,15 +512,20 @@ class Solcast :
 
     def __str__(self) :
         # return printable Solcast info
+        global debug_setting
         s = f'\nSolcast yield for {self.days} days'
         if self.cal is not None and self.cal != 1.0 :
             s += f", calibration = {self.cal}"
         s += f" (E = estimated, F = forecasts):\n\n"
         for k in self.keys :
             tag = 'F' if self.daily[k]['forecast'] else 'E'
-            y = self.daily[k]['value'] * self.cal
+            y = self.daily[k]['kwh'] * self.cal
             d = datetime.datetime.strptime(k, '%Y-%m-%d').strftime('%A')[:3]
             s += f"    {k} {d} {tag}: {y:5.2f} kwh\n"
+            for r in self.rids :
+                n = len(self.daily[k][r])
+                if n != 48 and debug_setting > 0:
+                    print(f" ** {k} rid {r} should have 48 x 30 min values. {n} values found")
         return s
 
     def plot_daily(self, th = None) :
@@ -530,12 +537,12 @@ class Solcast :
         plt.figure(figsize=self.figsize)
         # plot estimated
         x = [f"{k} {datetime.datetime.strptime(k, '%Y-%m-%d').strftime('%A')[:3]} " for k in self.keys if not self.daily[k]['forecast']]
-        y = [self.daily[k]['value'] * self.cal for k in self.keys if not self.daily[k]['forecast']]
+        y = [self.daily[k]['kwh'] * self.cal for k in self.keys if not self.daily[k]['forecast']]
         if x is not None and len(x) != 0 :
             plt.bar(x, y, color='orange', linestyle='solid', label='estimated', linewidth=2)
         # plot forecasts
         x = [f"{k} {datetime.datetime.strptime(k, '%Y-%m-%d').strftime('%A')[:3]} " for k in self.keys if self.daily[k]['forecast']]
-        y = [self.daily[k]['value'] * self.cal for k in self.keys if self.daily[k]['forecast']]
+        y = [self.daily[k]['kwh'] * self.cal for k in self.keys if self.daily[k]['forecast']]
         if x is not None and len(x) != 0 :
             plt.bar(x, y, color='green', linestyle='solid', label='forecast', linewidth=2)
         # annotations
