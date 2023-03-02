@@ -189,13 +189,13 @@ class Product :
     Load Product details
     """ 
 
-    def __init__(self, code = '', clear_cache = False, period_to = None) :
+    def __init__(self, code = '', clear_cache = False, period_to = None, params={}) :
         # load product details using a partial product code
         global product_codes, base_url, credentials
         if clear_cache :
             product_codes = None
         if product_codes is None :
-            response = requests.get(base_url + 'products', auth=credentials)
+            response = requests.get(base_url + 'products', auth=credentials, params=params)
             if response.status_code != 200 :
                 print("** response code getting list of products = {response.status_code}")
                 return
@@ -224,6 +224,7 @@ class Product :
         self.description = self.json.get('description')
         self.is_variable = self.json.get('is_variable')
         self.is_green = self.json.get('is_green')
+        self.is_tracker = self.json.get('is_tracker')
         # detect export products
         self.is_outgoing = 'OUTGOING' in self.code
         self.term = c_int(self.json.get('term'))
@@ -293,6 +294,7 @@ class Product :
                     s += f"   Gas unit cost:     {self.gas_kwh} p/kwh inc VAT\n"
             if debug_setting > 1 :
                 s += f"   Is variable:       {self.is_variable}\n"
+                s += f"   Is tracker:        {self.is_tracker}\n"
                 s += f"   Is green:          {self.is_green}\n"
                 s += f"   Is outgoing:       {self.is_outgoing}\n"
                 s += f"   Is agile:          {self.is_agile}\n"
@@ -317,8 +319,6 @@ class Product :
         params['period_from'] = self.period_from
         params['period_to'] = self.period_to
         params['page_size'] = 31 * 48
-        if debug_setting > 1 :
-            print(params)
         response = requests.get(base_url + 'products/' + self.code + '/electricity-tariffs/' + tariff_code + '/standard-unit-rates/', auth=credentials, params=params)
         if response.status_code != 200 :
             print(f"** response code for {self.code} / {self.imp_code} from {response.url} was {response.status_code}")
@@ -334,10 +334,6 @@ class Product :
             self.prices[hour][day] = value
         self.keys = sorted(self.prices)
         self.dates = sorted(self.prices[self.keys[0]], reverse=True)
-        if debug_setting > 1 :
-            print(f"Date range is: {self.dates}")
-        if debug_setting > 1 :
-            print(self.dates)
         self.is_agile = len(self.keys) == 48
         return
 
