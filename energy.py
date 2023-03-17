@@ -226,7 +226,7 @@ class Product :
         self.is_green = self.json.get('is_green')
         self.is_tracker = self.json.get('is_tracker')
         # detect export products
-        self.is_outgoing = 'OUTGOING' in self.code
+        self.is_outgoing = 'OUTGOING' in self.code or 'EXPORT' in self.code
         self.term = c_int(self.json.get('term'))
         # datetime conversion not reliable, store date as provided for now
         self.available_from = self.json.get('available_from')
@@ -253,8 +253,8 @@ class Product :
                 self.gas_code = t.get('code')
                 self.gas_day = c_float(t.get('standing_charge_inc_vat'))
                 self.gas_kwh = c_float(t.get('standard_unit_rate_inc_vat'))
-        # load 30 minute pricing, if available
-        self.load_30_minute_prices(period_to)
+        # load timed based pricing, if available
+        self.load_timed_prices(period_to)
         return
 
     def __str__(self) :
@@ -276,14 +276,14 @@ class Product :
                     s += f"   Import price code: {self.imp_code}\n"
                 if hasattr(self, 'imp_day'):
                     s += f"   Import day rate:   {self.imp_day} p/day inc VAT\n"
-                if hasattr(self, 'imp_kwh') and not self.is_agile :
+                if hasattr(self, 'imp_kwh') :
                     s += f"   Import unit cost:  {self.imp_kwh} p/kwh inc VAT\n"
             if exp_meter is not None:
                 if hasattr(self, 'exp_code') :
                     s += f"   Export price code: {self.exp_code}\n"
                 if hasattr(self, 'exp_day') :
                     s += f"   Export day cost:   {self.exp_day} p/day inc VAT\n"
-                if hasattr(self, 'exp_kwh') and not self.is_agile:
+                if hasattr(self, 'exp_kwh') :
                     s += f"   Export unit cost:  {self.exp_kwh} p/kwh inc VAT\n"
             if gas_meter is not None:
                 if hasattr(self, 'gas_code') :
@@ -297,12 +297,11 @@ class Product :
                 s += f"   Is tracker:        {self.is_tracker}\n"
                 s += f"   Is green:          {self.is_green}\n"
                 s += f"   Is outgoing:       {self.is_outgoing}\n"
-                s += f"   Is agile:          {self.is_agile}\n"
             return s[:-1]
         return f"** not a valid product\n"
 
-    def load_30_minute_prices(self, period_to = None) :
-        # get the pricing for a product over the last 31 days
+    def load_timed_prices(self, period_to = None) :
+        # get the timed pricing for a product over the last 31 days
         global tracked
         if self.code is None:
             return
@@ -334,14 +333,10 @@ class Product :
             self.prices[hour][day] = value
         self.keys = sorted(self.prices)
         self.dates = sorted(self.prices[self.keys[0]], reverse=True)
-        self.is_agile = len(self.keys) == 48
         return
 
-    def plot_30_minute_prices(self, days = 7) :
+    def plot_timed_prices(self, days = 7) :
         global page_width, figure_width
-        if not self.is_agile :
-            print(f"** 30 minute pricing is not available for {self.full_name} ({self.code})")
-            return
         if days > 31 :
             days = 31
         self.days = days
@@ -386,7 +381,7 @@ class Product :
             values = [self.period_avg[p] for t in times]
             plt.plot(times, values, color=self.tracked[p]['color'], linestyle='solid', label=self.tracked[p]['label'] + f" average", linewidth=3)
             plt.axvspan(times[0], times[-1], color=self.tracked[p]['color'], alpha=0.07)
-        plt.title(f"{self.full_name}: Average 30 minute {title}", fontsize=16)
+        plt.title(f"{self.full_name}: Average timed {title}", fontsize=16)
         plt.grid(axis='x', which='major', linewidth=0.8)
         plt.grid(axis='y', which='major', linewidth=0.8)
         plt.grid(axis='y',which='minor', linewidth=0.4)
