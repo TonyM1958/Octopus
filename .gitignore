@@ -3,3 +3,4 @@ __pycache__/energy.cpython-37.pyc
 private.py
 solcast.json
 
+*.pyc
