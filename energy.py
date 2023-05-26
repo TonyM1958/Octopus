@@ -2,7 +2,7 @@
 """
 Module:   Energy Analysis
 Created:  13 February 2023
-Updated:  27 February 2023
+Updated:  26 May 2023
 By:       Tony Matthews
 """
 ##################################################################################################
@@ -440,20 +440,30 @@ class Solcast :
     Load Solcast Estimate / ACtuals / Forecast daily yield
     """ 
 
-    def __init__(self, days = 7, reload = 0) :
+    def __init__(self, days = 7, reload = 2) :
         # days sets the number of days to get for forecasts and estimated.
         # The forecasts and estimated both include the current date, so the total number of days covered is 2 * days - 1.
         # The forecasts and estimated also both include the current time, so the data has to be de-duplicated to get an accurate total for a day
         global debug_setting, solcast_url, solcast_credentials, solcast_rids, solcast_save, solcast_cal
         data_sets = ['forecasts', 'estimated_actuals']
+        self.data = {}
+        self.today = str(datetime.date.today())
         if reload == 1 and os.path.exists(solcast_save):
             os.remove(solcast_save)
         if solcast_save is not None and os.path.exists(solcast_save):
             f = open(solcast_save)
             self.data = json.load(f)
             f.close()
-        else :
-            self.data = {}
+            if len(self.data) == 0:
+                print(f"No data in {solcast_save}")
+            elif reload == 2 and hasattr(self.data, 'date') and self.data['date'] != self.today:
+                self.data = {}
+            elif debug_setting > 0:
+                print(f"Using data from {solcast_save}")
+        if len(self.data) == 0 :
+            if debug_setting > 0:
+                print(f"Loading data from solcast.com.au for {today}")
+            self.data['date'] = self.today
             params = {'format' : 'json', 'hours' : 168, 'period' : 'PT30M'}     # always get 168 x 30 min values
             for t in data_sets :
                 self.data[t] = {}
@@ -512,7 +522,9 @@ class Solcast :
             tag = 'F' if self.daily[k]['forecast'] else 'E'
             y = self.daily[k]['kwh'] * self.cal
             d = datetime.datetime.strptime(k, '%Y-%m-%d').strftime('%A')[:3]
-            s += f"    {k} {d} {tag}: {y:5.2f} kwh\n"
+            s += "\033[1m--> " if k == self.today else "    "
+            s += f"{k} {d} {tag}: {y:5.2f} kwh"
+            s += " <--\033[0m\n" if k == self.today else "\n"
             for r in self.rids :
                 n = len(self.daily[k][r])
                 if n != 48 and debug_setting > 0:

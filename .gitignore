@@ -4,3 +4,5 @@ private.py
 solcast.json
 
 *.pyc
+.ipynb_checkpoints/solcast-checkpoint.json
+.ipynb_checkpoints/forecast-checkpoint.ipynb
